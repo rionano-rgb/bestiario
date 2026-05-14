@@ -1,14 +1,14 @@
 {
-  "version": 2,
-  "functions": {
-    "api/index.mjs": {
-      "runtime": "@vercel/node"
-    }
-  },
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
       "source": "/(.*)",
       "destination": "/api/index.mjs"
     }
-  ]
+  ],
+  "functions": {
+    "api/index.mjs": {
+      "maxDuration": 10
+    }
+  }
 }
