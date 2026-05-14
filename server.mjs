@@ -1049,7 +1049,7 @@ export async function handleRequest(req, res) {
 
       const artworkId = `art_${crypto.randomUUID().slice(0, 8)}`;
       const storedFileName = `${artworkId}.${extension}`;
-      await writeArtworkBuffer(storedFileName, buffer);
+      const storedArtwork = await writeArtworkBuffer(storedFileName, buffer, mimeType);
 
       const variantKey = buildVariantKey(selection);
       const artwork = {
@@ -1070,6 +1070,8 @@ export async function handleRequest(req, res) {
         }),
         originalName: String(body.fileName || 'artwork').slice(0, 180),
         storedFileName,
+        blobPath: storedArtwork.blobPath || '',
+        blobUrl: storedArtwork.blobUrl || '',
         mimeType,
         byteSize: buffer.length,
         width: metadata.width,
