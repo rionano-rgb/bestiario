@@ -44,6 +44,7 @@ a {
 
 button,
 input,
+select,
 label {
   font: inherit;
 }
@@ -310,7 +311,22 @@ h2 {
   padding: 16px 16px 15px;
 }
 
+.field select {
+  width: 100%;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text);
+  border-radius: 16px;
+  padding: 16px 16px 15px;
+}
+
 .field input:focus {
+  outline: none;
+  border-color: rgba(215,181,113,0.55);
+  box-shadow: 0 0 0 4px rgba(215,181,113,0.1);
+}
+
+.field select:focus {
   outline: none;
   border-color: rgba(215,181,113,0.55);
   box-shadow: 0 0 0 4px rgba(215,181,113,0.1);
@@ -380,10 +396,6 @@ h2 {
   justify-content: space-between;
   gap: 12px;
   margin-top: 28px;
-}
-
-.step-nav .nav-spacer {
-  flex: 1;
 }
 
 .admin-shell,
@@ -500,6 +512,66 @@ th {
   max-width: 420px;
 }
 
+.artwork-form {
+  display: grid;
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.field-grid-wide {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+.upload-drop {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  border-radius: 24px;
+  border: 1px dashed rgba(215,181,113,0.35);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015)),
+    radial-gradient(circle at top, rgba(215,181,113,0.08), transparent 48%);
+  text-align: center;
+  padding: 24px;
+  cursor: pointer;
+}
+
+.upload-drop input {
+  display: none;
+}
+
+.upload-drop span {
+  max-width: 42ch;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.artwork-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.artwork-card {
+  display: grid;
+  gap: 12px;
+}
+
+.artwork-card img {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border-radius: 20px;
+  border: 1px solid rgba(215,181,113,0.18);
+  background: rgba(255,255,255,0.03);
+}
+
+.artwork-card-copy {
+  display: grid;
+  gap: 4px;
+}
+
 .qr-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -595,6 +667,10 @@ th {
 
   .field-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .field-grid-wide {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .card-grid {
