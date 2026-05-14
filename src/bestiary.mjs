@@ -54,7 +54,7 @@ export const archetypes = [
     noun: 'Collezionista',
     article: 'Il',
     totem: 'Pantera',
-    caption: 'Sceglie solo ciò che merita di restare.',
+    caption: 'Sceglie solo cio che merita di restare.',
   },
   {
     id: 'musa',
@@ -92,6 +92,18 @@ export const ornaments = [
 
 export function getOption(list, id, fallbackIndex = 0) {
   return list.find((item) => item.id === id) ?? list[fallbackIndex];
+}
+
+export function buildVariantKey({ archetype, matter, energy, ornament }) {
+  return [archetype, matter, energy, ornament].map((value) => value || 'default').join('__');
+}
+
+export function formatVariantLabel({ archetypeId, matterId, energyId, ornamentId }) {
+  const archetype = getOption(archetypes, archetypeId);
+  const matter = getOption(matters, matterId);
+  const energy = getOption(energies, energyId);
+  const ornament = getOption(ornaments, ornamentId);
+  return `${archetype.label} / ${matter.label} / ${energy.label} / ${ornament.label}`;
 }
 
 export function escapeXml(value = '') {
@@ -232,7 +244,14 @@ export function composeCard(recipient, rawInput = {}) {
     matterLabel: matter.label,
     energyLabel: energy.label,
     ornamentLabel: ornament.label,
+    variantKey: rawInput.variantKey || buildVariantKey({
+      archetype: archetype.id,
+      matter: matter.id,
+      energy: energy.id,
+      ornament: ornament.id,
+    }),
     totem: archetype.totem,
+    artworkAssetId: rawInput.artworkAssetId || '',
     email: rawInput.email || '',
     company: rawInput.company || recipient.brand,
     consent: Boolean(rawInput.consent),
@@ -240,7 +259,7 @@ export function composeCard(recipient, rawInput = {}) {
   };
 }
 
-export function createCardSvg(card, { preview = false } = {}) {
+export function createCardSvg(card, { preview = false, artworkDataUri = '' } = {}) {
   const matter = getOption(matters, card.matterId);
   const energy = getOption(energies, card.energyId);
   const titleLines = wrapText(card.finalTitle.toUpperCase(), 18);
@@ -256,6 +275,14 @@ export function createCardSvg(card, { preview = false } = {}) {
   const descriptionTspans = descriptionLines
     .map((line, index) => `<tspan x="94" dy="${index === 0 ? 0 : 28}">${escapeXml(line)}</tspan>`)
     .join('');
+  const artworkLayer = artworkDataUri
+    ? `
+  <image href="${escapeXml(artworkDataUri)}" x="42" y="42" width="996" height="1266" preserveAspectRatio="xMidYMid slice" clip-path="url(#artworkClip)"/>
+  <rect x="42" y="42" width="996" height="1266" rx="42" fill="#060609" fill-opacity="0.34"/>
+  <rect x="42" y="42" width="996" height="1266" rx="42" fill="url(#vignette)"/>
+    `
+    : '';
+  const motifLayer = artworkDataUri ? '' : motifSvg(card.archetypeId, matter.accent, energy.glow);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="1080" height="1350" viewBox="0 0 1080 1350" xmlns="http://www.w3.org/2000/svg">
@@ -270,6 +297,11 @@ export function createCardSvg(card, { preview = false } = {}) {
       <stop offset="45%" stop-color="${energy.glow}" stop-opacity="0.16"/>
       <stop offset="100%" stop-color="${energy.glow}" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0" />
+      <stop offset="78%" stop-color="#000000" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.42" />
+    </radialGradient>
     <pattern id="grain" width="14" height="14" patternUnits="userSpaceOnUse">
       <path d="M0 0h14v14H0z" fill="transparent"/>
       <circle cx="1" cy="7" r="0.8" fill="rgba(255,255,255,0.08)"/>
@@ -279,15 +311,19 @@ export function createCardSvg(card, { preview = false } = {}) {
     <filter id="blur" x="-25%" y="-25%" width="150%" height="150%">
       <feGaussianBlur stdDeviation="38"/>
     </filter>
+    <clipPath id="artworkClip">
+      <rect x="42" y="42" width="996" height="1266" rx="42"/>
+    </clipPath>
   </defs>
   <rect width="1080" height="1350" fill="url(#bg)"/>
   <rect width="1080" height="1350" fill="url(#grain)" opacity="0.5"/>
   <circle cx="540" cy="556" r="285" fill="url(#glow)" filter="url(#blur)"/>
+  ${artworkLayer}
   <rect x="42" y="42" width="996" height="1266" rx="42" fill="none" stroke="rgba(216, 184, 115, 0.48)" stroke-width="1.6"/>
   <rect x="64" y="64" width="952" height="1222" rx="36" fill="none" stroke="rgba(216, 184, 115, 0.24)" stroke-width="1"/>
   <path d="M94 171h892" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
   <path d="M94 1118h892" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
-  ${motifSvg(card.archetypeId, matter.accent, energy.glow)}
+  ${motifLayer}
   <text x="94" y="128" fill="rgba(255,255,255,0.78)" style="font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 24px; letter-spacing: 5px;">IL BESTIARIO DEL LUSSO</text>
   <text x="94" y="247" fill="#f7f1e7" style="font-family: Georgia, 'Times New Roman', serif; font-size: 112px; letter-spacing: 1px;">${encodedName}</text>
   <text x="94" y="340" fill="rgba(255,255,255,0.86)" style="font-family: Georgia, 'Times New Roman', serif; font-size: 63px; letter-spacing: 0.5px;">${titleTspans}</text>
