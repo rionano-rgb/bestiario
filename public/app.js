@@ -111,7 +111,6 @@
           ...extra,
         });
       } catch (_) {
-        // Deliberately silent in the client.
       }
     }
 
@@ -211,6 +210,8 @@
   }
 
   function initAdmin() {
+    const payload = window.__BESTIARIO__ || {};
+
     document.querySelectorAll('[data-copy-link]').forEach((button) => {
       button.addEventListener('click', async () => {
         try {
@@ -223,6 +224,89 @@
           button.textContent = 'Copia manuale';
         }
       });
+    });
+
+    const form = document.querySelector('[data-artwork-form]');
+    if (!form || !payload.recipients || !payload.options) return;
+
+    const tokenSelect = form.querySelector('[data-artwork-token]');
+    const archetypeSelect = form.querySelector('[data-artwork-archetype]');
+    const matterSelect = form.querySelector('[data-artwork-matter]');
+    const energySelect = form.querySelector('[data-artwork-energy]');
+    const ornamentSelect = form.querySelector('[data-artwork-ornament]');
+    const fileInput = form.querySelector('[data-artwork-file]');
+    const variantNode = form.querySelector('[data-artwork-variant]');
+    const errorNode = form.querySelector('[data-artwork-error]');
+    const statusNode = form.querySelector('[data-artwork-status]');
+
+    function fillSelect(select, items) {
+      select.innerHTML = items
+        .map((item) => `<option value="${item.value}">${item.label}</option>`)
+        .join('');
+    }
+
+    fillSelect(tokenSelect, payload.recipients.map((item) => ({ value: item.token, label: item.label })));
+    fillSelect(archetypeSelect, payload.options.archetypes.map((item) => ({ value: item.id, label: item.label })));
+    fillSelect(matterSelect, payload.options.matters.map((item) => ({ value: item.id, label: item.label })));
+    fillSelect(energySelect, payload.options.energies.map((item) => ({ value: item.id, label: item.label })));
+    fillSelect(ornamentSelect, payload.options.ornaments.map((item) => ({ value: item.id, label: item.label })));
+
+    function optionLabel(items, id) {
+      return items.find((item) => item.id === id)?.label || id;
+    }
+
+    function updateVariant() {
+      variantNode.textContent = `Variante attiva: ${optionLabel(payload.options.archetypes, archetypeSelect.value)} / ${optionLabel(payload.options.matters, matterSelect.value)} / ${optionLabel(payload.options.energies, energySelect.value)} / ${optionLabel(payload.options.ornaments, ornamentSelect.value)}`;
+    }
+
+    [archetypeSelect, matterSelect, energySelect, ornamentSelect].forEach((select) => {
+      select.addEventListener('change', updateVariant);
+    });
+    updateVariant();
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      errorNode.textContent = '';
+      statusNode.textContent = '';
+
+      const file = fileInput.files?.[0];
+      if (!file) {
+        errorNode.textContent = 'Seleziona prima un artwork.';
+        return;
+      }
+
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Impossibile leggere il file.'));
+        reader.readAsDataURL(file);
+      });
+
+      statusNode.textContent = 'Caricamento artwork in corso...';
+
+      try {
+        const result = await postJson('/api/admin/upload-artwork', {
+          token: tokenSelect.value,
+          archetype: archetypeSelect.value,
+          matter: matterSelect.value,
+          energy: energySelect.value,
+          ornament: ornamentSelect.value,
+          fileName: file.name,
+          dataUrl,
+        });
+        statusNode.textContent = `Artwork salvato: ${result.artwork.variantLabel}.`;
+        form.reset();
+        fillSelect(tokenSelect, payload.recipients.map((item) => ({ value: item.token, label: item.label })));
+        fillSelect(archetypeSelect, payload.options.archetypes.map((item) => ({ value: item.id, label: item.label })));
+        fillSelect(matterSelect, payload.options.matters.map((item) => ({ value: item.id, label: item.label })));
+        fillSelect(energySelect, payload.options.energies.map((item) => ({ value: item.id, label: item.label })));
+        fillSelect(ornamentSelect, payload.options.ornaments.map((item) => ({ value: item.id, label: item.label })));
+        updateVariant();
+        window.setTimeout(() => window.location.reload(), 700);
+      } catch (error) {
+        statusNode.textContent = '';
+        errorNode.textContent = error.message;
+      }
     });
   }
 
@@ -237,7 +321,6 @@
           cardId: cta.dataset.cardId,
         });
       } catch (_) {
-        // no-op
       }
     });
   }
