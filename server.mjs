@@ -9,24 +9,31 @@ const { default: sharp } = await import('sharp').catch(() =>
 
 import {
   archetypes,
+  buildVariantKey,
   campaign,
   composeCard,
   createCardSvg,
   createQrSvg,
   energies,
+  formatVariantLabel,
   matters,
   ornaments,
 } from './src/bestiary.mjs';
+import { sendInternalNotification } from './src/notify.mjs';
 import {
   ensureDataFiles,
   getCardById,
-  getCards,
+  getCardArtworkById,
+  getCardArtworks,
   getDashboardSnapshot,
-  getEvents,
   getRecipientByToken,
   getRecipients,
+  readArtworkBuffer,
   recordEvent,
+  saveCardArtwork,
   saveCard,
+  findCardArtwork,
+  writeArtworkBuffer,
 } from './src/store.mjs';
 
 const port = Number(process.env.PORT || 3000);
@@ -154,6 +161,52 @@ async function trackServerEvent(req, event, recipientToken, extra = {}) {
     ...getUserAgentMeta(req),
     ...extra,
   });
+}
+
+function getCardSelectionFromParams(source) {
+  return {
+    archetype: source.archetype || source.get?.('archetype') || '',
+    matter: source.matter || source.get?.('matter') || '',
+    energy: source.energy || source.get?.('energy') || '',
+    ornament: source.ornament || source.get?.('ornament') || '',
+  };
+}
+
+function extensionFromMimeType(mimeType) {
+  if (mimeType === 'image/png') return 'png';
+  if (mimeType === 'image/jpeg') return 'jpg';
+  if (mimeType === 'image/webp') return 'webp';
+  return '';
+}
+
+function dataUriFromBuffer(buffer, mimeType) {
+  return `data:${mimeType};base64,${buffer.toString('base64')}`;
+}
+
+async function resolveArtworkForCard({ token, artworkAssetId = '', variantKey = '' }) {
+  if (artworkAssetId) {
+    const direct = await getCardArtworkById(artworkAssetId);
+    if (direct) return direct;
+  }
+  if (!token || !variantKey) return null;
+  return findCardArtwork({ token, variantKey });
+}
+
+async function resolveArtworkDataUri(selection, token, explicitArtworkAssetId = '') {
+  const variantKey = buildVariantKey(selection);
+  const artwork = await resolveArtworkForCard({
+    token,
+    artworkAssetId: explicitArtworkAssetId,
+    variantKey,
+  });
+  if (!artwork) {
+    return { artwork: null, artworkDataUri: '' };
+  }
+  const buffer = await readArtworkBuffer(artwork);
+  return {
+    artwork,
+    artworkDataUri: dataUriFromBuffer(buffer, artwork.mimeType),
+  };
 }
 
 function renderDocument({ title, body, page = 'generic', scriptData = null }) {
@@ -365,7 +418,7 @@ function renderExperiencePage(recipient) {
 
               <section class="step">
                 <div class="eyebrow">Step 4</div>
-                <h2>Il tuo ritratto è quasi pronto.</h2>
+                <h2>Il tuo ritratto e quasi pronto.</h2>
                 <p class="step-copy">Prima ti mostriamo il valore. Solo dopo ti chiediamo il dato.</p>
                 <div class="section-stack">
                   <p class="preview-copy">Hai composto un ritratto che tiene insieme archetipi, materia e segno. Se il tono ti rappresenta, continua e ricevilo in alta definizione.</p>
@@ -379,7 +432,7 @@ function renderExperiencePage(recipient) {
               <section class="step">
                 <div class="eyebrow">Step 5</div>
                 <h2>Lascia la tua email.</h2>
-                <p class="step-copy">La useremo solo per inviarti il ritratto e raccontarti, se ti interessa, come è nato il progetto.</p>
+                <p class="step-copy">La useremo solo per inviarti il ritratto e raccontarti, se ti interessa, come e nato il progetto.</p>
                 <form class="section-stack" data-lead-form>
                   <div class="field-grid">
                     <div class="field">
@@ -416,7 +469,7 @@ function renderExperiencePage(recipient) {
               <div class="preview-card-wrap">
                 <div class="eyebrow">Anteprima live</div>
                 <div class="preview-card">
-                  <img alt="Anteprima del ritratto impossibile" data-preview-image src="/api/preview.svg?token=${escapeHtml(recipient.token)}" />
+                  <img alt="Anteprima del ritratto impossibile" data-preview-image src="/api/preview.svg?token=${escapeHtml(recipient.token)}&archetype=${escapeHtml(archetypes[0].id)}&matter=${escapeHtml(matters[0].id)}&energy=${escapeHtml(energies[0].id)}&ornament=${escapeHtml(ornaments[0].id)}" />
                 </div>
                 <div class="preview-meta">
                   <strong data-preview-name>${escapeHtml(recipient.recipient_name)}</strong>
@@ -454,7 +507,7 @@ function csvEscape(value) {
 }
 
 function renderAdmin(snapshot, baseUrl) {
-  const { recipients, cards, events } = snapshot;
+  const { recipients, cards, events, artworks } = snapshot;
   const summaries = recipients.map((recipient) => {
     const recipientEvents = events.filter((item) => item.recipientToken === recipient.token);
     const latestCard = cards.find((item) => item.token === recipient.token) ?? null;
@@ -486,6 +539,7 @@ function renderAdmin(snapshot, baseUrl) {
   const totalOpened = summaries.filter((item) => item.opened).length;
   const totalCompleted = summaries.filter((item) => item.completed).length;
   const totalLeads = summaries.filter((item) => item.emailCaptured).length;
+  const totalArtworks = artworks.length;
   const tableRows = summaries
     .map((item) => {
       const link = `${baseUrl}/bestiario/${item.recipient.token}`;
@@ -530,15 +584,37 @@ function renderAdmin(snapshot, baseUrl) {
     )
     .join('');
 
+  const artworkCards = artworks.length
+    ? artworks
+        .map((artwork) => `
+      <article class="artwork-card">
+        <img alt="${escapeHtml(artwork.originalName)}" src="/api/admin/artwork/${escapeHtml(artwork.id)}" />
+        <div class="artwork-card-copy">
+          <strong>${escapeHtml(artwork.brand || artwork.token)}</strong>
+          <div class="small-note">${escapeHtml(artwork.variantLabel || artwork.variantKey)}</div>
+          <div class="small-note">${escapeHtml(artwork.originalName)}</div>
+        </div>
+      </article>`)
+        .join('')
+    : '<p class="small-note">Nessun artwork caricato. Qui compariranno le card fine art pre-generate pronte da associare alle varianti.</p>';
+
   return renderDocument({
     title: 'Admin • Bestiario del Lusso',
     page: 'admin',
+    scriptData: {
+      recipients: recipients.map((item) => ({
+        token: item.token,
+        label: `${item.brand} / ${item.recipient_name}`,
+        brand: item.brand,
+      })),
+      options: { archetypes, matters, energies, ornaments },
+    },
     body: `
       <main class="admin-shell shell">
         <section class="frame login-panel">
           <div class="eyebrow">Dashboard interna</div>
           <h1>Bestiario del Lusso</h1>
-          <p class="lead">Vista minima per destinatari, aperture, completamenti, email raccolte, export CSV e QR code di stampa.</p>
+          <p class="lead">Vista minima per destinatari, aperture, completamenti, email raccolte, QR di stampa e archivio artwork fine art pre-generati.</p>
           <div class="cta-row">
             <a class="btn" href="/api/admin/export.csv">Esporta CSV</a>
             <a class="ghost-btn" href="/admin/logout">Esci</a>
@@ -548,6 +624,7 @@ function renderAdmin(snapshot, baseUrl) {
             <div class="stat"><span>Link aperti</span><strong>${totalOpened}</strong></div>
             <div class="stat"><span>Esperienze completate</span><strong>${totalCompleted}</strong></div>
             <div class="stat"><span>Email raccolte</span><strong>${totalLeads}</strong></div>
+            <div class="stat"><span>Artwork fine art</span><strong>${totalArtworks}</strong></div>
           </div>
         </section>
 
@@ -576,8 +653,51 @@ function renderAdmin(snapshot, baseUrl) {
         <section class="frame login-panel" style="margin-top: 24px;">
           <div class="eyebrow">QR pack</div>
           <h2>QR pronti per stampa</h2>
-          <p class="info-copy">Ogni SVG punta già al link univoco del destinatario. Il nome file è coerente con il token e può essere usato per l'impaginato dell'invio fisico.</p>
+          <p class="info-copy">Ogni SVG punta gia al link univoco del destinatario. Il nome file e coerente con il token e puo essere usato per l'impaginato dell'invio fisico.</p>
           <div class="qr-grid">${qrBlocks}</div>
+        </section>
+
+        <section class="frame login-panel" style="margin-top: 24px;">
+          <div class="eyebrow">Archivio Fine Art</div>
+          <h2>Carica card pre-generate</h2>
+          <p class="info-copy">Qui puoi associare un artwork statico a una variante precisa del ritratto. Quando la combinazione esiste, la preview e la card finale useranno quell'immagine invece del rendering astratto.</p>
+          <form class="artwork-form" data-artwork-form>
+            <div class="field-grid field-grid-wide">
+              <div class="field">
+                <label for="artworkRecipient">Destinatario / brand</label>
+                <select id="artworkRecipient" name="token" data-artwork-token></select>
+              </div>
+              <div class="field">
+                <label for="artworkArchetype">Archetipo</label>
+                <select id="artworkArchetype" name="archetype" data-artwork-archetype></select>
+              </div>
+              <div class="field">
+                <label for="artworkMatter">Materia</label>
+                <select id="artworkMatter" name="matter" data-artwork-matter></select>
+              </div>
+              <div class="field">
+                <label for="artworkEnergy">Energia</label>
+                <select id="artworkEnergy" name="energy" data-artwork-energy></select>
+              </div>
+              <div class="field">
+                <label for="artworkOrnament">Ornamento</label>
+                <select id="artworkOrnament" name="ornament" data-artwork-ornament></select>
+              </div>
+            </div>
+            <label class="upload-drop">
+              <input type="file" accept="image/png,image/jpeg,image/webp" data-artwork-file />
+              <span>Trascina qui la card oppure seleziona un PNG, JPG o WEBP verticale 4:5.</span>
+            </label>
+            <div class="inline-note" data-artwork-variant></div>
+            <div class="form-error" data-artwork-error></div>
+            <div class="status-note" data-artwork-status></div>
+            <div class="cta-row">
+              <button class="btn" type="submit">Carica artwork</button>
+            </div>
+          </form>
+          <div class="artwork-grid">
+            ${artworkCards}
+          </div>
         </section>
       </main>`,
   });
@@ -615,7 +735,7 @@ function renderCardPage(card) {
         <section class="frame card-panel">
           <div class="eyebrow">${escapeHtml(campaign.name)}</div>
           <h1>${escapeHtml(card.displayName)}</h1>
-          <p class="lead">${escapeHtml(card.finalTitle)}. Il ritratto è pronto e può essere visualizzato o scaricato in formato editoriale 4:5.</p>
+          <p class="lead">${escapeHtml(card.finalTitle)}. Il ritratto e pronto e puo essere visualizzato o scaricato in formato editoriale 4:5.</p>
           <div class="card-grid" style="margin-top: 28px;">
             <div class="final-card">
               <img alt="Card finale ${escapeHtml(card.displayName)}" src="/api/card/${escapeHtml(card.id)}.png" />
@@ -653,8 +773,8 @@ function renderInfoPage() {
           <h1>Chi ha creato questo ritratto</h1>
           <p class="lead">Tailer Darden immagina oggetti digitali, invii fisici ed esperienze one-to-one per brand che vogliono aprire conversazioni memorabili senza sembrare campagne standard.</p>
           <div class="section-stack">
-            <p class="info-copy">Questo MVP nasce per testare un formato semplice ma tracciabile: link personalizzati, interazione breve, output editoriale e follow-up umano di qualità.</p>
-            <p class="info-copy">Nel test iniziale il canale digitale non sostituisce il rapporto commerciale: lo rende solo più naturale, misurabile e più elegante da riaprire.</p>
+            <p class="info-copy">Questo MVP nasce per testare un formato semplice ma tracciabile: link personalizzati, interazione breve, output editoriale e follow-up umano di qualita.</p>
+            <p class="info-copy">Nel test iniziale il canale digitale non sostituisce il rapporto commerciale: lo rende solo piu naturale, misurabile e piu elegante da riaprire.</p>
           </div>
           <div class="cta-row">
             <a class="btn" href="/">Torna all'indice demo</a>
@@ -673,9 +793,9 @@ function renderPrivacyPage() {
           <div class="eyebrow">Privacy</div>
           <h1>Informativa essenziale</h1>
           <div class="section-stack">
-            <p class="info-copy">I dati raccolti in questa esperienza sono nome, email, azienda, timestamp del consenso e dati di interazione strettamente necessari a capire se il ritratto è stato aperto o completato.</p>
-            <p class="info-copy">L'uso previsto è limitato all'invio del Ritratto Impossibile, al follow-up manuale relativo al progetto e alla misurazione dell'interesse espresso dal destinatario.</p>
-            <p class="info-copy">Su richiesta è possibile cancellare i dati raccolti. Per un uso reale in produzione, il testo va verificato dal legale del progetto e adattato al processo GDPR definitivo.</p>
+            <p class="info-copy">I dati raccolti in questa esperienza sono nome, email, azienda, timestamp del consenso e dati di interazione strettamente necessari a capire se il ritratto e stato aperto o completato.</p>
+            <p class="info-copy">L'uso previsto e limitato all'invio del Ritratto Impossibile, al follow-up manuale relativo al progetto e alla misurazione dell'interesse espresso dal destinatario.</p>
+            <p class="info-copy">Su richiesta e possibile cancellare i dati raccolti. Per un uso reale in produzione, il testo va verificato dal legale del progetto e adattato al processo GDPR definitivo.</p>
           </div>
         </section>
       </main>`,
@@ -710,8 +830,16 @@ async function serveQrSvg(req, res, token) {
   });
 }
 
-async function serveCardPng(res, card, download = false) {
-  const svg = createCardSvg(card);
+async function serveArtworkImage(res, artwork) {
+  const buffer = await readArtworkBuffer(artwork);
+  send(res, 200, buffer, {
+    'Content-Type': artwork.mimeType,
+    'Cache-Control': 'no-store',
+  });
+}
+
+async function serveCardPng(res, card, download = false, artworkDataUri = '') {
+  const svg = createCardSvg(card, { artworkDataUri });
   const buffer = await sharp(Buffer.from(svg)).png().toBuffer();
   send(res, 200, buffer, {
     'Content-Type': 'image/png',
@@ -856,6 +984,120 @@ export async function handleRequest(req, res) {
       return;
     }
 
+    if (pathname.startsWith('/api/admin/artwork/')) {
+      if (!isAdmin(req)) {
+        send(res, 403, 'Forbidden', { 'Content-Type': 'text/plain; charset=utf-8' });
+        return;
+      }
+      const artworkId = pathname.replace('/api/admin/artwork/', '');
+      const artwork = await getCardArtworkById(artworkId);
+      if (!artwork) {
+        send(res, 404, 'Not found', { 'Content-Type': 'text/plain; charset=utf-8' });
+        return;
+      }
+      await serveArtworkImage(res, artwork);
+      return;
+    }
+
+    if (pathname === '/api/admin/upload-artwork' && req.method === 'POST') {
+      if (!isAdmin(req)) {
+        sendJson(res, 403, { error: 'Accesso negato.' });
+        return;
+      }
+      const body = await readBody(req);
+      const recipient = await getRecipientByToken(body.token);
+      if (!recipient) {
+        sendJson(res, 404, { error: 'Destinatario non trovato.' });
+        return;
+      }
+
+      const selection = getCardSelectionFromParams(body);
+      if (!selection.archetype || !selection.matter || !selection.energy || !selection.ornament) {
+        sendJson(res, 400, { error: 'La variante della card e incompleta.' });
+        return;
+      }
+
+      const dataUrl = String(body.dataUrl || '');
+      const match = dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
+      if (!match) {
+        sendJson(res, 400, { error: 'Carica un PNG, JPG o WEBP valido.' });
+        return;
+      }
+
+      const mimeType = match[1];
+      const extension = extensionFromMimeType(mimeType);
+      if (!extension) {
+        sendJson(res, 400, { error: 'Formato immagine non supportato.' });
+        return;
+      }
+
+      const buffer = Buffer.from(match[2], 'base64');
+      if (!buffer.length) {
+        sendJson(res, 400, { error: 'Il file caricato e vuoto.' });
+        return;
+      }
+      if (buffer.length > 12 * 1024 * 1024) {
+        sendJson(res, 400, { error: 'Il file supera il limite di 12 MB.' });
+        return;
+      }
+
+      const metadata = await sharp(buffer).metadata().catch(() => null);
+      if (!metadata?.width || !metadata?.height) {
+        sendJson(res, 400, { error: 'Il file immagine non e leggibile.' });
+        return;
+      }
+
+      const artworkId = `art_${crypto.randomUUID().slice(0, 8)}`;
+      const storedFileName = `${artworkId}.${extension}`;
+      await writeArtworkBuffer(storedFileName, buffer);
+
+      const variantKey = buildVariantKey(selection);
+      const artwork = {
+        id: artworkId,
+        token: recipient.token,
+        brand: recipient.brand,
+        recipientName: recipient.recipient_name,
+        archetypeId: selection.archetype,
+        matterId: selection.matter,
+        energyId: selection.energy,
+        ornamentId: selection.ornament,
+        variantKey,
+        variantLabel: formatVariantLabel({
+          archetypeId: selection.archetype,
+          matterId: selection.matter,
+          energyId: selection.energy,
+          ornamentId: selection.ornament,
+        }),
+        originalName: String(body.fileName || 'artwork').slice(0, 180),
+        storedFileName,
+        mimeType,
+        byteSize: buffer.length,
+        width: metadata.width,
+        height: metadata.height,
+        uploadedAt: new Date().toISOString(),
+      };
+      await saveCardArtwork(artwork);
+      await recordEvent({
+        id: crypto.randomUUID(),
+        event: 'artwork_uploaded',
+        recipientToken: recipient.token,
+        timestamp: new Date().toISOString(),
+        artworkId: artwork.id,
+        variantKey,
+      });
+
+      sendJson(res, 200, {
+        ok: true,
+        artwork: {
+          id: artwork.id,
+          token: artwork.token,
+          variantLabel: artwork.variantLabel,
+          previewUrl: `/api/admin/artwork/${artwork.id}`,
+        },
+      });
+      return;
+    }
+
     if (pathname === '/api/track' && req.method === 'POST') {
       const body = await readBody(req);
       if (!body.recipientToken || !body.event) {
@@ -895,15 +1137,24 @@ export async function handleRequest(req, res) {
         return;
       }
       if (!body.consent) {
-        sendJson(res, 400, { error: 'Il consenso privacy è richiesto.' });
+        sendJson(res, 400, { error: 'Il consenso privacy e richiesto.' });
         return;
       }
 
+      const selection = getCardSelectionFromParams(body);
+      const variantKey = buildVariantKey(selection);
+      const artwork = await resolveArtworkForCard({
+        token: recipient.token,
+        variantKey,
+      });
+
       const card = composeCard(recipient, {
-        archetype: body.archetype,
-        matter: body.matter,
-        energy: body.energy,
-        ornament: body.ornament,
+        archetype: selection.archetype,
+        matter: selection.matter,
+        energy: selection.energy,
+        ornament: selection.ornament,
+        variantKey,
+        artworkAssetId: artwork?.id || '',
         signatureName: body.signatureName || name,
         displayName: body.name || recipient.recipient_name,
         roleWord: body.roleWord || '',
@@ -938,10 +1189,38 @@ export async function handleRequest(req, res) {
         timestamp: new Date().toISOString(),
         email,
       });
+
+      let notification = { ok: false, reason: 'not_attempted' };
+      try {
+        notification = await sendInternalNotification({
+          card,
+          recipient,
+          baseUrl: baseUrlFromRequest(req),
+        });
+        await recordEvent({
+          id: crypto.randomUUID(),
+          event: notification.ok ? 'internal_notification_sent' : 'internal_notification_skipped',
+          recipientToken: recipient.token,
+          cardId: card.id,
+          timestamp: new Date().toISOString(),
+          reason: notification.reason || '',
+        });
+      } catch (error) {
+        notification = { ok: false, reason: error.message };
+        await recordEvent({
+          id: crypto.randomUUID(),
+          event: 'internal_notification_failed',
+          recipientToken: recipient.token,
+          cardId: card.id,
+          timestamp: new Date().toISOString(),
+          error: error.message,
+        });
+      }
+
       sendJson(res, 200, {
         ok: true,
         cardId: card.id,
-        notificationPreview: `${card.displayName} / ${card.brand} ha completato l'esperienza. ${card.archetypeLabel} - ${card.matterLabel} - ${card.energyLabel}.`,
+        notification,
       });
       return;
     }
@@ -954,7 +1233,9 @@ export async function handleRequest(req, res) {
         return;
       }
       const card = previewPayloadFromSearch(recipient, url.searchParams);
-      const svg = createCardSvg(card, { preview: true });
+      const selection = getCardSelectionFromParams(url.searchParams);
+      const { artworkDataUri } = await resolveArtworkDataUri(selection, recipient.token);
+      const svg = createCardSvg(card, { preview: true, artworkDataUri });
       send(res, 200, svg, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' });
       return;
     }
@@ -968,7 +1249,13 @@ export async function handleRequest(req, res) {
           send(res, 404, 'Not found', { 'Content-Type': 'text/plain; charset=utf-8' });
           return;
         }
-        send(res, 200, createCardSvg(card), { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' });
+        const { artworkDataUri } = await resolveArtworkDataUri({
+          archetype: card.archetypeId,
+          matter: card.matterId,
+          energy: card.energyId,
+          ornament: card.ornamentId,
+        }, card.token, card.artworkAssetId);
+        send(res, 200, createCardSvg(card, { artworkDataUri }), { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' });
         return;
       }
       if (identifier.endsWith('.png')) {
@@ -979,7 +1266,13 @@ export async function handleRequest(req, res) {
           return;
         }
         const download = url.searchParams.get('download') === '1';
-        await serveCardPng(res, card, download);
+        const { artworkDataUri } = await resolveArtworkDataUri({
+          archetype: card.archetypeId,
+          matter: card.matterId,
+          energy: card.energyId,
+          ornament: card.ornamentId,
+        }, card.token, card.artworkAssetId);
+        await serveCardPng(res, card, download, artworkDataUri);
         return;
       }
     }
