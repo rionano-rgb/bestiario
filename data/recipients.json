@@ -1,0 +1,72 @@
+[
+  {
+    "recipient_name": "Roberta",
+    "recipient_last_name": "Bianchi",
+    "email_known": "roberta@pomellato.com",
+    "brand": "Pomellato",
+    "role": "Head of Communications",
+    "sector": "Jewelry",
+    "campaign": "Bestiario del Lusso 2026",
+    "token": "pomellato-roberta",
+    "custom_intro": "Abbiamo immaginato per Pomellato una piccola creatura del colore, nata tra oro, luce e movimento.",
+    "status": "sent",
+    "theme": "Edizione Cavallo di Fuoco 2026",
+    "notes": "Invio premium con QR personalizzato."
+  },
+  {
+    "recipient_name": "Francesca",
+    "recipient_last_name": "Riva",
+    "email_known": "francesca@dodo.it",
+    "brand": "DoDo",
+    "role": "Marketing Director",
+    "sector": "Jewelry",
+    "campaign": "Bestiario del Lusso 2026",
+    "token": "dodo-francesca",
+    "custom_intro": "Per DoDo abbiamo immaginato un ritratto impossibile dove il segno incontra il talismano.",
+    "status": "sent",
+    "theme": "Edizione Cavallo di Fuoco 2026",
+    "notes": "Focus su tono più giocoso ma sempre editoriale."
+  },
+  {
+    "recipient_name": "Marco",
+    "recipient_last_name": "Sereni",
+    "email_known": "marco@buccellati.com",
+    "brand": "Buccellati",
+    "role": "Brand Marketing Lead",
+    "sector": "Jewelry",
+    "campaign": "Bestiario del Lusso 2026",
+    "token": "buccellati-marco",
+    "custom_intro": "Per Buccellati abbiamo immaginato una creatura di trama, rilievo e fuoco quieto.",
+    "status": "sent",
+    "theme": "Edizione Cavallo di Fuoco 2026",
+    "notes": "Da seguire con output molto materico."
+  },
+  {
+    "recipient_name": "Laura",
+    "recipient_last_name": "Conti",
+    "email_known": "laura@damiani.com",
+    "brand": "Damiani",
+    "role": "Global Marketing Manager",
+    "sector": "Jewelry",
+    "campaign": "Bestiario del Lusso 2026",
+    "token": "damiani-laura",
+    "custom_intro": "Per Damiani abbiamo immaginato un ritratto dove la luce si fissa in una forma araldica.",
+    "status": "preparing",
+    "theme": "Edizione Cavallo di Fuoco 2026",
+    "notes": "Link pronto, invio fisico da confermare."
+  },
+  {
+    "recipient_name": "Giulia",
+    "recipient_last_name": "Neri",
+    "email_known": "giulia@cartier.com",
+    "brand": "Cartier",
+    "role": "Communication Manager",
+    "sector": "Luxury",
+    "campaign": "Bestiario del Lusso 2026",
+    "token": "cartier-giulia",
+    "custom_intro": "Per Cartier abbiamo immaginato una figura di precisione, istinto e bagliore trattenuto.",
+    "status": "queued",
+    "theme": "Edizione Cavallo di Fuoco 2026",
+    "notes": "Recipient di esempio per estendere il test."
+  }
+]
